@@ -9,9 +9,7 @@ ExecStart=/bin/bash -c 'source %h/jarvis_env/bin/activate && python %h/jarvis/ja
 #   remova --text se quiser saída de voz
 
 WorkingDirectory=%h/jarvis
-Environment=OPENAI_API_KEY=sk-xxxxxxxx
-Environment=JARVIS_ASSISTANT_ID=asst_yyyyyyyy
-Environment=JARVIS_THREAD_ID=thread_zzzzzzz
+EnvironmentFile=%h/jarvis/.env
 Restart=on-failure
 RestartSec=10
 User=%u
