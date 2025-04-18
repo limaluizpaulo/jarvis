@@ -41,6 +41,89 @@ class JarvisInterface:
         response = self.openai_client.send_message("O que você vê nesta imagem?", image_path=image_path)
         self.audio_handler.speak(response)
     
+    def is_github_query(self, user_input):
+        """
+        Verifica se a pergunta do usuário é relacionada ao GitHub.
+        
+        Args:
+            user_input: A pergunta ou comando do usuário
+            
+        Returns:
+            Boolean indicando se a pergunta é sobre GitHub
+        """
+        github_keywords = [
+            "github", "repositório", "repositorio", "repo", 
+            "commit", "branches", "pull request", "pr", 
+            "código fonte", "codigo fonte", "fonte", 
+            "último commit", "ultimo commit", "alterações",
+            "alteracoes", "modificações", "modificacoes",
+            "alterou", "modificou", "mudou", "atualizou",
+            "lista de arquivos", "arquivos do projeto",
+            "mostra o código", "mostra o codigo", "ver código", "ver codigo",
+            "listar arquivos", "ver arquivo", "mostrar arquivo"
+        ]
+        
+        # Converte para minúsculas para facilitar a comparação
+        user_input_lower = user_input.lower()
+        
+        # Verifica se alguma das palavras-chave está presente na pergunta
+        for keyword in github_keywords:
+            if keyword in user_input_lower:
+                log.debug(f"Consulta GitHub detectada: '{user_input}'")
+                return True
+                
+        return False
+    
+    def process_github_query(self, user_input):
+        """
+        Processa uma consulta relacionada ao GitHub e retorna a resposta.
+        
+        Args:
+            user_input: A pergunta ou comando do usuário relacionado ao GitHub
+            
+        Returns:
+            str: Resposta com informações do GitHub
+        """
+        # Verifica se o GitHub está habilitado
+        if not self.openai_client.github_retriever.is_enabled():
+            return "Desculpe, a integração com GitHub não está configurada. Verifique se as variáveis GITHUB_API_TOKEN, GITHUB_REPO_OWNER e GITHUB_REPO_NAME estão definidas no arquivo .env."
+        
+        # Verifica se é uma pergunta sobre acesso ao GitHub
+        if "acesso ao github" in user_input.lower() or "tem acesso" in user_input.lower():
+            repo_info = f"{self.openai_client.github_retriever.repo_owner}/{self.openai_client.github_retriever.repo_name}"
+            return f"Sim, tenho acesso ao repositório GitHub: {repo_info}. Posso listar arquivos, mostrar código, obter commits recentes e outras informações. Como posso ajudar com o GitHub?"
+        
+        # Comandos específicos para commits
+        if "commits" in user_input.lower() or "últimos commits" in user_input.lower():
+            log.info("Obtendo os commits mais recentes do repositório")
+            commits = self.openai_client.github_retriever.get_recent_commits()
+            if not commits:
+                return "Não foi possível obter os commits mais recentes."
+            
+            response = "Commits mais recentes:\n"
+            for commit in commits:
+                response += f"- {commit['message']} por {commit['author']} em {commit['date']}\n  Link: {commit['url']}\n"
+            return response
+        
+        # Listar arquivos do repositório
+        if "listar arquivos" in user_input.lower() or "ver arquivos" in user_input.lower():
+            log.info("Listando arquivos do repositório")
+            files = self.openai_client.github_retriever.list_files()
+            if not files:
+                return "Não foi possível listar os arquivos do repositório."
+            
+            response = "Arquivos no repositório:\n"
+            for file in files[:20]:  # Limita a 20 arquivos para não sobrecarregar a resposta
+                response += f"- {file['path']}\n"
+            
+            if len(files) > 20:
+                response += f"\n... e mais {len(files) - 20} arquivos."
+            
+            return response
+        
+        # Para outras consultas, passamos para o LLM responder com contexto do GitHub
+        return self.openai_client.send_message(f"Esta é uma pergunta sobre o repositório GitHub {self.openai_client.github_retriever.repo_owner}/{self.openai_client.github_retriever.repo_name}: {user_input}")
+    
     def run_conversation(self, with_voice=True):
         """
         Executa um loop contínuo de conversação com o usuário.
@@ -96,9 +179,14 @@ class JarvisInterface:
                     # Log a entrada do usuário
                     log.info(f"Entrada do usuário: {user_input}")
                     
-                    # Get response from assistant (método padrão)
-                    log.debug("Enviando mensagem para o assistente")
-                    response = self.openai_client.send_message(user_input)
+                    # Verifica se é uma consulta relacionada ao GitHub
+                    if self.is_github_query(user_input):
+                        log.info("Processando consulta GitHub")
+                        response = self.process_github_query(user_input)
+                    else:
+                        # Get response from assistant (método padrão)
+                        log.debug("Enviando mensagem para o assistente")
+                        response = self.openai_client.send_message(user_input)
                     
                     # Speak the response
                     self.audio_handler.speak(response)
