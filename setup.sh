@@ -14,7 +14,7 @@ source jarvis_env/bin/activate
 # Install Python dependencies
 echo "Installing Python dependencies..."
 pip install --upgrade pip
-pip install "openai==1.*" "SpeechRecognition==3.*" pillow requests simpleaudio python-dotenv
+pip install "openai==1.*" "SpeechRecognition==3.*" requests pygame python-dotenv
 
 # Prompt for OpenAI API key
 echo "Please enter your OpenAI API key:"
