@@ -16,6 +16,12 @@ import pygame
 import speech_recognition as sr
 from openai import OpenAI
 
+# Importar o logger
+from log_manager import LogManager
+
+# Configura o logger
+log = LogManager().logger
+
 # Suprimir mensagens de erro do ALSA
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 
@@ -53,9 +59,10 @@ def initialize_audio():
     try:
         with suppress_stdout_stderr():
             pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=2048)
+        log.debug("Sistema de áudio inicializado com sucesso")
         return True
     except Exception as e:
-        print(f"Erro ao inicializar áudio: {e}")
+        log.error(f"Erro ao inicializar áudio: {e}")
         return False
 
 class AudioHandler:
@@ -71,6 +78,8 @@ class AudioHandler:
         """
         self.client = openai_client
         self.text_only = text_only
+        log.info(f"Modo somente texto: {text_only}")
+        
         self.recognizer = sr.Recognizer()
         
         # Inicializa pygame para reprodução de áudio
@@ -80,6 +89,7 @@ class AudioHandler:
         self.recognizer.pause_threshold = 1.5  # Espera 1.5 segundos de silêncio antes de considerar que a fala terminou
         self.recognizer.energy_threshold = 300  # Aumentar a sensibilidade para ouvir vozes mais suaves
         self.recognizer.non_speaking_duration = 1.0  # Ajustar o nível de silêncio que marca o fim da fala
+        log.debug("Reconhecedor de fala configurado")
     
     def listen(self):
         """
@@ -96,9 +106,9 @@ class AudioHandler:
                 # Usar o context manager para suprimir erros ALSA durante a inicialização do microfone
                 with suppress_stderr(), sr.Microphone() as source:
                     if attempt == 0:
-                        print("Ouvindo... (fale o quanto quiser, farei uma pausa antes de processar)")
+                        log.info("Ouvindo... (fale o quanto quiser, farei uma pausa antes de processar)")
                     else:
-                        print("Ainda ouvindo... (aguardando sua voz)")
+                        log.info(f"Ainda ouvindo... (aguardando sua voz) - tentativa {attempt+1}/{max_attempts}")
                     
                     # Ajustar para o ruído ambiente
                     self.recognizer.adjust_for_ambient_noise(source, duration=0.5)
@@ -106,27 +116,29 @@ class AudioHandler:
                     # Configuração para esperar até que a pessoa fale
                     audio = self.recognizer.listen(source, phrase_time_limit=30)
                 
-                print("Processando fala...")
+                log.debug("Processando fala...")
                 text = self.recognizer.recognize_google(audio, language="pt-BR")
-                print(f"Você disse: {text}")
+                log.info(f"Texto reconhecido: {text}")
                 return text
             
             except sr.UnknownValueError:
                 # Quando não reconhece a fala, tenta novamente sem avisar o usuário
                 attempt += 1
-                print(f"Nada detectado, continuando a ouvir... (tentativa {attempt}/{max_attempts})")
+                log.debug(f"Nada detectado, continuando a ouvir... (tentativa {attempt}/{max_attempts})")
                 # Pequena pausa antes da próxima tentativa
                 time.sleep(1)
                 continue
                 
-            except sr.RequestError:
+            except sr.RequestError as e:
+                log.error(f"Erro de conexão com serviço de reconhecimento: {e}")
                 return "SPEECH_SERVICE_DOWN"
                 
             except Exception as e:
-                print(f"Erro ao escutar: {str(e)}")
+                log.exception(f"Erro ao escutar: {str(e)}")
                 return "SPEECH_ERROR"
         
         # Se após várias tentativas ainda não conseguiu reconhecer a fala
+        log.warning("Fala não reconhecida após várias tentativas")
         return "SPEECH_NOT_RECOGNIZED"
     
     def speak(self, text):
@@ -137,12 +149,13 @@ class AudioHandler:
             text (str): Texto a ser convertido em fala
         """
         if self.text_only or not text.strip():
-            print(f"Jarvis (texto): {text}")
+            log.info(f"Jarvis (texto): {text}")
             return
 
-        print(f"Jarvis (falando): {text}")
+        log.info(f"Jarvis (falando): {text}")
         try:
             # Obter áudio da API OpenAI
+            log.debug("Solicitando síntese de voz à API OpenAI")
             resp = self.client.audio.speech.create(
                 model="tts-1",
                 voice="alloy",
@@ -150,6 +163,7 @@ class AudioHandler:
                 response_format="wav"
             )
             wav_bytes = resp.content
+            log.debug(f"Áudio recebido, tamanho: {len(wav_bytes)} bytes")
 
             # Método usando pygame para reproduzir o áudio
             with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_file:
@@ -158,6 +172,7 @@ class AudioHandler:
             
             try:
                 # Reproduzir usando pygame com supressão total de saída
+                log.debug(f"Reproduzindo áudio de: {temp_path}")
                 with suppress_stdout_stderr():
                     pygame.mixer.music.load(temp_path)
                     pygame.mixer.music.play()
@@ -169,26 +184,32 @@ class AudioHandler:
                         while pygame.mixer.music.get_busy():
                             # Usar sleep mais curto para responder mais rapidamente a interrupções
                             time.sleep(0.05)
+                    log.debug("Reprodução concluída")
                 except KeyboardInterrupt:
                     # Se Ctrl+C for pressionado, parar reprodução e notificar
                     pygame.mixer.music.stop()
-                    print("\nReprodução interrompida pelo usuário")
+                    log.warning("Reprodução interrompida pelo usuário")
                     # Re-lançar a exceção para ser capturada pelo nível superior
                     raise
             finally:
                 # Remover o arquivo temporário silenciosamente
                 try:
                     os.remove(temp_path)
-                except Exception:
+                    log.debug("Arquivo temporário removido")
+                except Exception as e:
+                    log.error(f"Erro ao remover arquivo temporário: {e}")
                     pass  # Ignorar erros ao remover arquivo temporário
 
         except KeyboardInterrupt:
             # Re-lançar KeyboardInterrupt para ser capturado no método chamador
+            log.info("Interrupção de teclado detectada durante síntese de fala")
             raise
         except Exception as e:
-            print(f"Erro de áudio: {e}")
+            log.exception(f"Erro de áudio: {e}")
     
     def cleanup(self):
         """Limpa recursos de áudio."""
+        log.debug("Limpando recursos de áudio")
         if pygame.mixer.get_init():
             pygame.mixer.quit()
+            log.debug("Sistema de áudio encerrado")
