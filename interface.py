@@ -152,6 +152,7 @@ class JarvisInterface:
     def _is_code_question(self, question):
         """
         Verifica se a pergunta do usuário é relacionada a código ou ao funcionamento do Jarvis.
+        Otimizada para ser mais seletiva e reduzir o uso desnecessário de tokens.
         
         Args:
             question: A pergunta do usuário
@@ -162,34 +163,67 @@ class JarvisInterface:
         # Converte para minúsculas para facilitar a comparação
         question_lower = question.lower()
         
-        # Palavras-chave que indicam perguntas sobre código
-        code_keywords = [
-            "código", "function", "classe", "método", "implementação", "como funciona",
-            "código fonte", "arquivo", "módulo", "implementado", "código do jarvis",
-            "como está implementado", "estrutura do código", "arquitetura", "desenvolvimento",
-            "programação", "projeto", "sistema", "openai_client", "audio_handler", "interface",
-            "log_manager", "script", "python", "def ", "class ", "import ", "pacote", "biblioteca"
+        # Sistema de pontuação para determinar a necessidade do analisador de código
+        score = 0
+        
+        # Palavras-chave de alta relevância (forte indicação de perguntas sobre o código)
+        high_relevance_keywords = [
+            "código fonte", "implementação", "arquitetura do jarvis",
+            "como funciona o código", "estrutura do projeto",
+            "como está implementado o", "def ", "class "
         ]
         
-        # Verifica se qualquer palavra-chave está na pergunta
-        for keyword in code_keywords:
+        # Palavras-chave de média relevância
+        medium_relevance_keywords = [
+            "módulo", "função", "classe", "método", 
+            "openai_client", "audio_handler", "code_analyzer"
+        ]
+        
+        # Palavras-chave gerais (baixa relevância)
+        low_relevance_keywords = [
+            "código", "python", "arquivo", "sistema", 
+            "desenvolvimento", "programação"
+        ]
+        
+        # Verifica palavras-chave de alta relevância (3 pontos cada)
+        for keyword in high_relevance_keywords:
             if keyword in question_lower:
-                log.debug(f"Palavra-chave de código detectada: '{keyword}'")
-                return True
+                log.debug(f"Palavra-chave de alta relevância detectada: '{keyword}'")
+                score += 3
                 
-        # Padrões de expressão regular que indicam perguntas sobre código
-        code_patterns = [
-            r'como\s+(?:você|o sistema|o jarvis)\s+(?:está|é|foi)\s+(?:feito|implementado|programado|desenvolvido|codificado)',
-            r'(?:explique|mostre|detalhe)\s+(?:o|a)\s+(?:código|implementação|funcionamento|arquitetura)',
-            r'(?:qual|como\s+é)\s+a\s+(?:estrutura|arquitetura|organização)\s+do\s+(?:código|sistema|projeto)',
-            r'(?:onde|como)\s+(?:está|é)\s+definido',
-            r'(?:qual|como)\s+(?:arquivo|módulo|classe|função)',
+        # Verifica palavras-chave de média relevância (2 pontos cada)
+        for keyword in medium_relevance_keywords:
+            if keyword in question_lower:
+                log.debug(f"Palavra-chave de média relevância detectada: '{keyword}'")
+                score += 2
+                
+        # Verifica palavras-chave de baixa relevância (1 ponto cada)
+        for keyword in low_relevance_keywords:
+            if keyword in question_lower:
+                log.debug(f"Palavra-chave de baixa relevância detectada: '{keyword}'")
+                score += 1
+                
+        # Padrões de expressão regular específicos (3 pontos cada)
+        specific_code_patterns = [
+            r'como\s+(?:você|o jarvis)\s+(?:está|foi)\s+implementado',
+            r'explique\s+(?:o|a)\s+(?:código|implementação|arquitetura)\s+do\s+jarvis',
+            r'(?:qual|como\s+é)\s+a\s+estrutura\s+do\s+código',
+            r'como\s+funciona\s+(?:o módulo|a classe|o arquivo)\s+(\w+)'
         ]
         
-        # Verifica se qualquer padrão corresponde à pergunta
-        for pattern in code_patterns:
+        # Verifica os padrões específicos
+        for pattern in specific_code_patterns:
             if re.search(pattern, question_lower):
-                log.debug(f"Padrão de código detectado: '{pattern}'")
-                return True
-                
-        return False
+                log.debug(f"Padrão específico de código detectado: '{pattern}'")
+                score += 3
+        
+        # Define um limiar para utilizar o analisador de código (min. 3 pontos)
+        threshold = 3
+        should_use_analyzer = score >= threshold
+        
+        if should_use_analyzer:
+            log.info(f"Análise de código necessária (pontuação: {score})")
+        else:
+            log.info(f"Análise de código não necessária (pontuação: {score})")
+            
+        return should_use_analyzer

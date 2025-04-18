@@ -366,20 +366,35 @@ if __name__ == "__main__":
 
 # ----- Funções para formatação e geração de prompts -----
 
-def format_function_info(function_info: Dict) -> str:
+def format_function_info(function_info: Dict, max_docstring_length: int = None) -> str:
     """
     Formata as informações de uma função para apresentação em prompts.
     
     Args:
         function_info: Dicionário com informações da função
+        max_docstring_length: Comprimento máximo permitido para a docstring
         
     Returns:
         String formatada com informações da função
     """
     args_str = ", ".join(function_info["args"]) if function_info["args"] else "sem argumentos"
-    docstring = f" - {function_info['docstring']}" if function_info.get("docstring") else ""
     
-    return f"função {function_info['name']}({args_str}){docstring}"
+    # Tratar a docstring, possivelmente truncando-a
+    docstring = function_info.get("docstring", "")
+    if docstring and max_docstring_length and len(docstring) > max_docstring_length:
+        docstring = docstring[:max_docstring_length] + "..."
+    
+    docstring_str = f" - {docstring}" if docstring else ""
+    
+    # Incluir caminho do arquivo apenas se estiver disponível e for relevante
+    file_info = ""
+    if function_info.get("_file"):
+        file_path = function_info["_file"]
+        # Extrair apenas o nome do arquivo para economizar tokens
+        file_name = os.path.basename(file_path)
+        file_info = f" [arquivo: {file_name}]"
+    
+    return f"função {function_info['name']}({args_str}){file_info}{docstring_str}"
 
 def format_class_info(class_info: Dict) -> str:
     """
@@ -505,6 +520,7 @@ def generate_project_context(analysis_results: Dict, max_files: int = None) -> s
 def generate_prompt_for_openai(functions, classes, user_question):
     """
     Gera um prompt formatado para ser enviado à API OpenAI baseado nos resultados da análise.
+    Otimizado para reduzir o consumo de tokens.
     
     Args:
         functions: Lista de funções encontradas na análise
@@ -514,21 +530,52 @@ def generate_prompt_for_openai(functions, classes, user_question):
     Returns:
         String formatada como prompt para a API OpenAI
     """
-    # Formatar funções
+    # Limitar número máximo de funções e classes para economizar tokens
+    max_functions = 5  # Reduzido de 10 para 5
+    max_classes = 3    # Reduzido de 5 para 3
+    
+    # Cálculo aproximado de tokens (4 caracteres ~ 1 token)
+    token_budget = 4000  # Budget máximo de tokens para o contexto
+    token_estimate = len(user_question) // 4  # Estimativa para a pergunta
+    
+    # Truncar para os limites estabelecidos
+    functions = functions[:max_functions]
+    classes = classes[:max_classes]
+    
+    # Formatar funções com limite de caracteres
     func_info = []
     for func in functions:
         if isinstance(func, dict):
-            func_info.append(format_function_info(func))
+            # Limitar descrição de funções
+            func_formatted = format_function_info(func, max_docstring_length=150)
+            func_info.append(func_formatted)
+            token_estimate += len(func_formatted) // 4
         else:
-            func_info.append(str(func))
+            func_info.append(str(func)[:200])  # Limitar tamanho da string
+            token_estimate += 50  # Estimativa conservadora
     
-    # Formatar classes
+    # Formatar classes com limite de caracteres
     class_info = []
     for cls in classes:
         if isinstance(cls, dict):
-            class_info.append(format_class_info(cls))
+            # Limitar descrição de classes
+            cls_formatted = format_class_info(cls, max_docstring_length=150)
+            class_info.append(cls_formatted)
+            token_estimate += len(cls_formatted) // 4
         else:
-            class_info.append(str(cls))
+            class_info.append(str(cls)[:200])  # Limitar tamanho da string
+            token_estimate += 50  # Estimativa conservadora
+    
+    # Verificar se estamos dentro do orçamento de tokens
+    log.info(f"Estimativa de tokens para o contexto: {token_estimate}")
+    
+    # Gerar contexto com base no orçamento de tokens
+    if token_estimate > token_budget:
+        log.warning(f"Estimativa de tokens ({token_estimate}) excede o orçamento ({token_budget})")
+        # Reduzir ainda mais para caber no orçamento
+        func_info = func_info[:3]  # Apenas 3 funções mais relevantes
+        class_info = class_info[:2]  # Apenas 2 classes mais relevantes
+        log.info(f"Contexto reduzido para {len(func_info)} funções e {len(class_info)} classes")
     
     # Gerar contexto
     code_context = "Contexto do código:\n"
@@ -546,6 +593,10 @@ def generate_prompt_for_openai(functions, classes, user_question):
     # Montar prompt completo
     prompt = f"{code_context}Pergunta do usuário: {user_question}\n\n"
     prompt += "Por favor, responda à pergunta do usuário com base no contexto do código fornecido."
+    
+    # Estimativa final de tokens
+    final_token_estimate = len(prompt) // 4
+    log.info(f"Estimativa final de tokens para o prompt: {final_token_estimate}")
     
     return prompt
 
@@ -678,6 +729,44 @@ def process_query_with_context(directory: str, user_question: str, openai_client
         # Gera o prompt para o OpenAI usando as funções e classes encontradas
         log.debug(f"Gerando prompt com {len(all_functions)} funções e {len(all_classes)} classes")
         prompt = generate_prompt_for_openai(all_functions, all_classes, user_question)
+        
+        # Registra informações detalhadas sobre o que está sendo enviado
+        log.info("=== DETALHES DO CONTEXTO ENVIADO PARA OPENAI ===")
+        log.info(f"Pergunta do usuário: {user_question}")
+        log.info(f"Total de arquivos analisados: {len(analysis['files']) if use_cache else 'N/A'}")
+        log.info(f"Total de funções incluídas no contexto: {len(all_functions)}")
+        log.info(f"Total de classes incluídas no contexto: {len(all_classes)}")
+        
+        # Detalhes sobre as funções mais relevantes no contexto
+        if all_functions:
+            log.info("Funções mais relevantes incluídas:")
+            for i, func in enumerate(all_functions[:5], 1):  # Mostrar apenas as 5 primeiras
+                fname = func.get("name", "Sem nome")
+                ffile = func.get("_file", "Arquivo desconhecido")
+                fdoc = func.get("docstring", "")
+                fdoc_preview = fdoc[:50] + "..." if fdoc and len(fdoc) > 50 else fdoc
+                log.info(f"  {i}. {fname} - Arquivo: {os.path.basename(ffile)} - Doc: {fdoc_preview}")
+        
+        # Detalhes sobre as classes mais relevantes no contexto
+        if all_classes:
+            log.info("Classes mais relevantes incluídas:")
+            for i, cls in enumerate(all_classes[:3], 1):  # Mostrar apenas as 3 primeiras
+                cname = cls.get("name", "Sem nome")
+                cfile = cls.get("_file", "Arquivo desconhecido")
+                cdoc = cls.get("docstring", "")
+                cdoc_preview = cdoc[:50] + "..." if cdoc and len(cdoc) > 50 else cdoc
+                cmethods = len(cls.get("methods", []))
+                log.info(f"  {i}. {cname} - Arquivo: {os.path.basename(cfile)} - Métodos: {cmethods} - Doc: {cdoc_preview}")
+                
+        # Registra o tamanho do prompt
+        prompt_size = len(prompt)
+        log.info(f"Tamanho total do prompt (caracteres): {prompt_size}")
+        
+        # Registra uma prévia do prompt
+        preview_length = min(500, len(prompt))
+        prompt_preview = prompt[:preview_length] + ("..." if len(prompt) > preview_length else "")
+        log.info(f"Prévia do prompt:\n{prompt_preview}")
+        log.info("=== FIM DOS DETALHES DE CONTEXTO ===")
         
         # Se o cliente OpenAI não foi fornecido, apenas retorna o prompt
         if openai_client is None:
