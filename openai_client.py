@@ -62,17 +62,18 @@ class OpenAIClient:
     
     def __init__(self):
         """Inicializa o cliente OpenAI e configura o assistente."""
-        # Verificar API key
-        if not os.environ.get("OPENAI_API_KEY"):
-            raise ValueError("OPENAI_API_KEY não encontrada no ambiente. Configure a variável de ambiente.")
+        # Verificar API key do arquivo .env
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise ValueError("OPENAI_API_KEY não encontrada no arquivo .env. Configure o arquivo .env com suas credenciais.")
             
-        self.client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+        self.client = OpenAI(api_key=api_key)
         
         # Create or retrieve assistant
         self.assistant = self._get_or_create_assistant()
         
         # Create a new thread or use existing one
-        thread_id = os.environ.get("JARVIS_THREAD_ID")
+        thread_id = os.getenv("JARVIS_THREAD_ID")
         if thread_id:
             try:
                 self.thread = self.client.beta.threads.retrieve(thread_id)
@@ -93,7 +94,7 @@ class OpenAIClient:
         Returns:
             O assistente configurado
         """
-        assistant_id = os.environ.get("JARVIS_ASSISTANT_ID")
+        assistant_id = os.getenv("JARVIS_ASSISTANT_ID")
         
         if assistant_id:
             try:

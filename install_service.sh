@@ -1,22 +1,27 @@
 #!/bin/bash
 
+# Obter o diretório absoluto do script
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # Verify .env file exists
-if [ ! -f "$HOME/jarvis/.env" ]; then
-    if [ -f "$HOME/jarvis/.env.example" ]; then
+if [ ! -f "$SCRIPT_DIR/.env" ]; then
+    if [ -f "$SCRIPT_DIR/.env.example" ]; then
         echo "Creating .env file from example..."
-        cp "$HOME/jarvis/.env.example" "$HOME/jarvis/.env"
-        echo "Please edit $HOME/jarvis/.env with your API keys and configuration."
+        cp "$SCRIPT_DIR/.env.example" "$SCRIPT_DIR/.env"
+        echo "Please edit $SCRIPT_DIR/.env with your API keys and configuration."
     else
         echo "Creating basic .env file..."
-        cat > "$HOME/jarvis/.env" << EOF
+        cat > "$SCRIPT_DIR/.env" << EOF
 # Configurações do Jarvis
 OPENAI_API_KEY=
 JARVIS_ASSISTANT_ID=
 JARVIS_THREAD_ID=
 EOF
-        echo "Please edit $HOME/jarvis/.env with your API keys and configuration."
+        echo "Please edit $SCRIPT_DIR/.env with your API keys and configuration."
     fi
-    exit 1
+    # Não interromper a execução, só avisar
+    echo "AVISO: O arquivo .env foi criado, mas você precisará configurá-lo manualmente antes de usar o Jarvis."
+    echo "O serviço será instalado, mas não funcionará até que o arquivo .env seja preenchido."
 fi
 
 # Create a systemd service file for Jarvis
@@ -26,9 +31,9 @@ Description=Jarvis AI Assistant
 After=network.target
 
 [Service]
-ExecStart=/bin/bash -c 'source $HOME/jarvis_env/bin/activate && python $HOME/jarvis/jarvis.py --text'
-WorkingDirectory=$HOME/jarvis
-EnvironmentFile=$HOME/jarvis/.env
+ExecStart=/bin/bash -c 'source $HOME/jarvis_env/bin/activate && python $SCRIPT_DIR/jarvis.py --text'
+WorkingDirectory=$SCRIPT_DIR
+EnvironmentFile=$SCRIPT_DIR/.env
 Restart=on-failure
 User=$USER
 
@@ -50,5 +55,4 @@ echo "Jarvis service installed and started."
 echo "Check status with: sudo systemctl status jarvis.service"
 echo "View logs with: journalctl -u jarvis.service -f"
 echo ""
-echo "Nota: A configuração foi movida para o arquivo .env em $HOME/jarvis/.env"
 echo "Se precisar alterar as chaves de API ou outros parâmetros, edite esse arquivo."

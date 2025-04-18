@@ -24,9 +24,19 @@ def main():
     
     # Carregar variáveis de ambiente
     try:
-        load_dotenv()  # carrega variáveis de .env se existir
+        # Forçar uso de variáveis apenas do arquivo .env
+        dotenv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
+        if not os.path.exists(dotenv_path):
+            raise ValueError("Arquivo .env não encontrado. Por favor, crie um arquivo .env com suas configurações.")
+        
+        load_dotenv(dotenv_path=dotenv_path, override=True)  # override=True garante que as variáveis do .env tenham precedência
+        
+        # Verificar se as variáveis essenciais foram carregadas
+        if not os.getenv("OPENAI_API_KEY"):
+            raise ValueError("OPENAI_API_KEY não foi definida no arquivo .env. Configure essa variável no arquivo .env.")
     except ImportError:
-        print("Recomendado instalar python-dotenv: pip install python-dotenv")
+        print("Erro: python-dotenv não está instalado. Execute: pip install python-dotenv")
+        sys.exit(1)
     
     try:
         # Inicializar cliente OpenAI
