@@ -7,9 +7,17 @@ o ciclo principal de execução e interação com o usuário via texto ou voz.
 
 import os
 import sys
+import re
 
 # Importar o logger
 from log_manager import LogManager
+
+# Importar analisador de código
+try:
+    from code_analyzer import process_query_with_context
+    _has_code_analyzer = True
+except ImportError:
+    _has_code_analyzer = False
 
 # Configura o logger
 log = LogManager().logger
@@ -95,9 +103,24 @@ class JarvisInterface:
                     # Log a entrada do usuário
                     log.info(f"Entrada do usuário: {user_input}")
                     
-                    # Get response from assistant
-                    log.debug("Enviando mensagem para o assistente")
-                    response = self.openai_client.send_message(user_input)
+                    # Verifica se a pergunta é sobre código
+                    if _has_code_analyzer and self._is_code_question(user_input):
+                        log.info("Pergunta sobre código detectada, usando analisador de código")
+                        
+                        # Obtenha o diretório do projeto Jarvis
+                        project_dir = os.path.dirname(os.path.abspath(__file__))
+                        
+                        # Use o analisador de código para obter uma resposta contextualizada
+                        response = process_query_with_context(
+                            directory=project_dir,
+                            user_question=user_input,
+                            openai_client=self.openai_client,
+                            use_cache=True
+                        )
+                    else:
+                        # Get response from assistant (método padrão)
+                        log.debug("Enviando mensagem para o assistente")
+                        response = self.openai_client.send_message(user_input)
                     
                     # Speak the response
                     self.audio_handler.speak(response)
@@ -125,3 +148,48 @@ class JarvisInterface:
             # Limpar recursos ao sair
             self.audio_handler.cleanup()
             print("Jarvis encerrado.")
+    
+    def _is_code_question(self, question):
+        """
+        Verifica se a pergunta do usuário é relacionada a código ou ao funcionamento do Jarvis.
+        
+        Args:
+            question: A pergunta do usuário
+            
+        Returns:
+            Boolean indicando se a pergunta é sobre código
+        """
+        # Converte para minúsculas para facilitar a comparação
+        question_lower = question.lower()
+        
+        # Palavras-chave que indicam perguntas sobre código
+        code_keywords = [
+            "código", "function", "classe", "método", "implementação", "como funciona",
+            "código fonte", "arquivo", "módulo", "implementado", "código do jarvis",
+            "como está implementado", "estrutura do código", "arquitetura", "desenvolvimento",
+            "programação", "projeto", "sistema", "openai_client", "audio_handler", "interface",
+            "log_manager", "script", "python", "def ", "class ", "import ", "pacote", "biblioteca"
+        ]
+        
+        # Verifica se qualquer palavra-chave está na pergunta
+        for keyword in code_keywords:
+            if keyword in question_lower:
+                log.debug(f"Palavra-chave de código detectada: '{keyword}'")
+                return True
+                
+        # Padrões de expressão regular que indicam perguntas sobre código
+        code_patterns = [
+            r'como\s+(?:você|o sistema|o jarvis)\s+(?:está|é|foi)\s+(?:feito|implementado|programado|desenvolvido|codificado)',
+            r'(?:explique|mostre|detalhe)\s+(?:o|a)\s+(?:código|implementação|funcionamento|arquitetura)',
+            r'(?:qual|como\s+é)\s+a\s+(?:estrutura|arquitetura|organização)\s+do\s+(?:código|sistema|projeto)',
+            r'(?:onde|como)\s+(?:está|é)\s+definido',
+            r'(?:qual|como)\s+(?:arquivo|módulo|classe|função)',
+        ]
+        
+        # Verifica se qualquer padrão corresponde à pergunta
+        for pattern in code_patterns:
+            if re.search(pattern, question_lower):
+                log.debug(f"Padrão de código detectado: '{pattern}'")
+                return True
+                
+        return False
