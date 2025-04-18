@@ -12,13 +12,6 @@ import re
 # Importar o logger
 from log_manager import LogManager
 
-# Importar analisador de código
-try:
-    from code_analyzer import process_query_with_context
-    _has_code_analyzer = True
-except ImportError:
-    _has_code_analyzer = False
-
 # Configura o logger
 log = LogManager().logger
 
@@ -103,24 +96,9 @@ class JarvisInterface:
                     # Log a entrada do usuário
                     log.info(f"Entrada do usuário: {user_input}")
                     
-                    # Verifica se a pergunta é sobre código
-                    if _has_code_analyzer and self._is_code_question(user_input):
-                        log.info("Pergunta sobre código detectada, usando analisador de código")
-                        
-                        # Obtenha o diretório do projeto Jarvis
-                        project_dir = os.path.dirname(os.path.abspath(__file__))
-                        
-                        # Use o analisador de código para obter uma resposta contextualizada
-                        response = process_query_with_context(
-                            directory=project_dir,
-                            user_question=user_input,
-                            openai_client=self.openai_client,
-                            use_cache=True
-                        )
-                    else:
-                        # Get response from assistant (método padrão)
-                        log.debug("Enviando mensagem para o assistente")
-                        response = self.openai_client.send_message(user_input)
+                    # Get response from assistant (método padrão)
+                    log.debug("Enviando mensagem para o assistente")
+                    response = self.openai_client.send_message(user_input)
                     
                     # Speak the response
                     self.audio_handler.speak(response)
@@ -176,7 +154,7 @@ class JarvisInterface:
         # Palavras-chave de média relevância
         medium_relevance_keywords = [
             "módulo", "função", "classe", "método", 
-            "openai_client", "audio_handler", "code_analyzer"
+            "openai_client", "audio_handler"
         ]
         
         # Palavras-chave gerais (baixa relevância)
